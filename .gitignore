@@ -1,0 +1,8 @@
+certeo_work/
+__pycache__/
+.ipynb_checkpoints/
+.env
+*.aux
+*.log
+*.out
+*.toc

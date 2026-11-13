@@ -1,0 +1,326 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{microtype}
+\usepackage[hidelinks]{hyperref}
+
+\newtheorem{proposition}{Proposition}
+\theoremstyle{definition}
+\newtheorem{example}{Example}
+\theoremstyle{remark}
+\newtheorem*{remark}{Remark}
+
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Prob}{\mathbb{P}}
+\newcommand{\1}{\mathbf{1}}
+
+\title{CERTEO: Scene-Level Certification of SAR-to-Optical Translation\\[0.4ex]
+\large Mathematical description of the method and the experiments}
+\author{Anonymous}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+A SAR-to-optical generator turns a radar patch into an image that looks optical, but it does not say which of its pixels can be trusted. This document describes CERTEO, a procedure that builds a trust mask for any frozen generator with a stated guarantee on the share of pixels that are trusted but wrong. We show that calibrating on patches is exactly scene-level calibration at an inflated level, derive a law for the share of deployed users who are over budget, prove a certification tax that every distribution-free per-user certificate must pay, and show that capping the trusted share of each patch, together with a closed-form product certificate, makes per-user guarantees usable from 8--16 labelled scenes. All results were checked on SEN12MS-CR and SAR2Opt with the accompanying notebook.
+\end{abstract}
+
+\tableofcontents
+
+\section{Setting and notation}
+
+A frozen generator maps a SAR patch $x$ to an optical estimate $\hat y$ with three bands $b\in\{1,2,3\}$, scaled to $[0,1]$. A pixel is \emph{wrong} if $\max_b|\hat y_b-y_b|>\tau$. A trust score $s$ (higher means less trustworthy) and a threshold $\lambda$ define the trust mask $\{s\le\lambda\}$. Table~\ref{tab:notation} lists the notation.
+
+\begin{table}[htbp]
+\centering
+\caption{Notation.}
+\label{tab:notation}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Symbol & Meaning\\
+\midrule
+$x,\ y,\ \hat y$ & SAR patch, reference optical patch, generated patch\\
+$\tau$ & error tolerance per pixel\\
+$s,\ \lambda$ & trust score per pixel, threshold\\
+$P$ & pixels per patch ($256\times256$)\\
+$n,\ m$ & patches per scene, number of labelled scenes\\
+$\alpha,\ \delta$ & error budget, allowed failure probability of a certificate\\
+$q$ & cap: largest share of a patch that may be trusted\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+A \emph{scene} is one region in one season. Patches from one scene share weather, season, land cover and sensor state, so they are strongly correlated. The loss of a patch is its share of pixels that are trusted and wrong,
+\begin{equation}
+\ell(\lambda)=\frac1P\sum_{p=1}^{P}\1\{s_p\le\lambda\}\,\1\Big\{\max_b|\hat y_{p,b}-y_{p,b}|>\tau\Big\},
+\end{equation}
+and the loss of scene $i$ is the mean over its $n$ patches, $L_i(\lambda)=n^{-1}\sum_{k=1}^{n}\ell_{ik}(\lambda)$. It is nondecreasing in $\lambda$. The risk of a threshold is $R(\lambda)=\E[L_i(\lambda)]$, and the \emph{certified area} is the share of pixels trusted at the selected threshold.
+
+\begin{example}
+A patch has $P=100$ pixels; at threshold $\lambda$, 30 are trusted and 4 of these are wrong. Then $\ell(\lambda)=0.04$. The loss counts wrong pixels over all pixels; the error among trusted pixels, $4/30\approx0.13$, is a different quantity (Section~\ref{sec:limits}).
+\end{example}
+
+\section{Conformal risk control with scenes as units}
+
+For $m$ exchangeable scenes with losses in $[0,B]$, scene-level conformal risk control (CRC) \cite{crc} selects
+\begin{equation}
+\hat\lambda=\max\Big\{\lambda:\ \frac{\sum_{i=1}^{m}L_i(\lambda)+B}{m+1}\le\alpha\Big\},
+\label{eq:crc}
+\end{equation}
+which guarantees $\E[L_{m+1}(\hat\lambda)]\le\alpha$ for a new scene, on average over calibration sets. Even with zero observed loss, \eqref{eq:crc} accepts only if $m\ge B/\alpha-1$; with $B=1$ and $\alpha=0.05$ this is 19 scenes. A user is \emph{over budget} if $R(\hat\lambda)>\alpha$ for the calibration set that user drew. CRC controls the average risk, not this event.
+
+\section{The unit of calibration}
+
+Patch-level CRC applies \eqref{eq:crc} to the $mn$ patches as if they were exchangeable, with $B=1$.
+
+\begin{proposition}[Unit equivalence]\label{prop:unit}
+With $n$ patches in each of $m$ scenes and $B=1$, patch-level CRC at level $\alpha$ selects the same threshold as scene-level CRC at level
+\begin{equation}
+\alpha'=\alpha+\frac{(1-\alpha)(1-1/n)}{m+1}.
+\label{eq:alphap}
+\end{equation}
+\end{proposition}
+
+\begin{proof}
+Since $\sum_{i,k}\ell_{ik}=n\sum_iL_i$, patch-level CRC accepts $\lambda$ if $(n\sum_iL_i(\lambda)+1)/(mn+1)\le\alpha$, that is, if $\sum_iL_i(\lambda)\le[\alpha(mn+1)-1]/n$. Scene-level CRC at level $\alpha'$ accepts $\lambda$ if $\sum_iL_i(\lambda)\le\alpha'(m+1)-1$. Equating the right-hand sides gives
+\[
+\alpha'=\frac{\alpha(mn+1)-1+n}{n(m+1)}=\alpha+\frac{(1-\alpha)(1-1/n)}{m+1}.
+\]
+Both rules accept the same thresholds and select the same $\hat\lambda$. Because scenes, not patches, are exchangeable, the CRC theorem yields only $\E[L_{m+1}(\hat\lambda)]\le\alpha'$.
+\end{proof}
+
+Cutting more patches from each scene does not help: as $n\to\infty$, $\alpha'\to\alpha+(1-\alpha)/(m+1)$. For $m=32$, $n=64$, $\alpha=0.05$, the operating level is $\alpha'=0.078$. This sharpens the observation of Dunn et al.\ \cite{dunn} that pooling grouped data yields only approximate guarantees.
+
+\section{How often a user is over budget}
+
+Let $\lambda^{+}$ be the first grid threshold with $R(\lambda^{+})>\alpha$ and $\bar L=m^{-1}\sum_iL_i(\lambda^{+})$. Because losses are monotone, the user is over budget exactly when $\bar L\le t$, with
+\begin{equation}
+t=\alpha-\frac{1-\alpha}{m}\ \text{(scene-level CRC)},\qquad
+t=\alpha-\frac{1-\alpha}{mn}\ \text{(patch-level CRC)}.
+\end{equation}
+
+\begin{proposition}[Skew-corrected law]\label{prop:law}
+Let $\sigma_n^2$ and $\gamma$ be the variance and skewness of $L_i(\lambda^{+})$ and $z=(t-R(\lambda^{+}))\sqrt m/\sigma_n$. Then
+\begin{equation}
+\Prob(\text{over budget})\approx\Phi(z)-\frac{\gamma\,(z^2-1)\,\phi(z)}{6\sqrt m},
+\label{eq:law}
+\end{equation}
+where $\Phi$ and $\phi$ are the standard normal distribution function and density.
+\end{proposition}
+
+Equation~\eqref{eq:law} is the one-term Edgeworth expansion \cite{hall} of the distribution of $\bar L$. The variance splits as $\sigma_n^2=\sigma_b^2+\sigma_w^2/n$ into a between-scene and a within-scene part. The between-scene part remains for every $n$, while patch-level CRC sets $t$ almost equal to $\alpha$; hence $z\to0$ and
+\begin{equation}
+\Prob(\text{over budget})\to\frac12+\frac{\gamma}{6\sqrt{2\pi m}},
+\end{equation}
+which exceeds one half for right-skewed scene losses. On the real scenes (skewness 2.5--4.2, 126 configurations, 2{,}000 draws) the maximum error of \eqref{eq:law} is 0.031 (mean 0.006), against 0.082 (mean 0.021) for $\Phi(z)$ alone.
+
+\section{The certification tax}
+
+A per-user certificate requires $\Prob(R(\hat\lambda)\le\alpha)\ge1-\delta$ over calibration sets. A procedure is $(\alpha,\delta)$-valid if this holds for every distribution of scene losses on $[0,q]$.
+
+\begin{proposition}[Certification tax]\label{prop:tax}
+Let scene losses be i.i.d.\ in $[0,q]$. Any $(\alpha,\delta)$-valid procedure accepts a threshold of risk $R<\alpha$ with probability at most $\delta\,[(q-R)/(q-\alpha)]^{m}$. Accepting it with probability at least $\beta$ therefore requires
+\begin{equation}
+R\le\alpha-(q-\alpha)\Big[(\beta/\delta)^{1/m}-1\Big].
+\label{eq:tax}
+\end{equation}
+\end{proposition}
+
+\begin{proof}
+The argument follows Bahadur and Savage \cite{bahadur}. Let $P_0$ be a loss distribution on $[0,q]$ with mean $R<\alpha$, and $A$ the event that the procedure accepts. For $\varepsilon\in(0,1)$ let $P_\varepsilon=(1-\varepsilon)P_0+\varepsilon\,\delta_q$, where $\delta_q$ is a point mass at $q$. Its mean $(1-\varepsilon)R+\varepsilon q$ exceeds $\alpha$ when $\varepsilon>(\alpha-R)/(q-R)$, so validity requires $P_\varepsilon^m(A)\le\delta$. With probability $(1-\varepsilon)^m$ all scenes are drawn from the $P_0$ component, hence $P_\varepsilon^m(A)\ge(1-\varepsilon)^mP_0^m(A)$ and
+\[
+P_0^m(A)\le\frac{\delta}{(1-\varepsilon)^m}\longrightarrow\delta\Big(\frac{q-R}{q-\alpha}\Big)^m
+\quad\text{as }\varepsilon\downarrow\frac{\alpha-R}{q-R}.
+\]
+Requiring $P_0^m(A)\ge\beta$ and solving for $R$ gives \eqref{eq:tax}.
+\end{proof}
+
+The subtracted term is the \emph{tax}; for large $m$ it is about $(q-\alpha)\ln(\beta/\delta)/m$, while CRC pays $(q-\alpha)/m$. Setting $R=0$ and $\beta=1$ gives the smallest number of scenes at which anything can be accepted,
+\begin{equation}
+m\ge\frac{\ln(1/\delta)}{\ln\bigl(q/(q-\alpha)\bigr)}.
+\label{eq:mmin}
+\end{equation}
+Table~\ref{tab:budget} evaluates \eqref{eq:crc}, \eqref{eq:mmin} and the product certificate of Section~\ref{sec:product}.
+
+\begin{table}[htbp]
+\centering
+\caption{Smallest number of i.i.d.\ scenes at which anything can be certified ($\alpha=0.05$, $\delta=0.1$).}
+\label{tab:budget}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+Cap $q$ & 1 & 0.5 & 0.25 & 0.15\\
+\midrule
+CRC (average guarantee), $m\ge q/\alpha-1$ & 19 & 9 & 4 & 2\\
+Any per-user certificate, \eqref{eq:mmin} & 45 & 22 & 11 & 6\\
+Product certificate, $c=0.75$ & 60 & 29 & 14 & 8\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{remark}
+If 5.1\% of scenes were completely wrong, a sample of 44 scenes would contain none of them with probability $0.949^{44}\approx0.10$. Such a sample looks like a perfect world, so no valid method may certify from it. In simulation, the product certificate with $c=1$ accepts an all-zero sample from exactly the values of Table~\ref{tab:budget}, and the mixture adversary is then accepted with probability 0.089--0.098: the bound is attained.
+\end{remark}
+
+\section{Capped trust masks}
+
+The cap $q$ is the only term of the tax that the user controls. A \emph{capped trust mask} trusts the pixels with $s\le\lambda$, but at most a share $q$ of each patch, lowest scores first:
+\begin{equation}
+M_q(\lambda)=\{s\le\lambda\}\cap\{s\le s_{(\lceil qP\rceil)}\},
+\end{equation}
+where $s_{(k)}$ is the $k$-th smallest score in the patch. Every patch loss, hence every scene loss, then lies in $[0,q]$, and monotonicity in $\lambda$ is preserved. At $\alpha=0.05$, $\delta=0.1$, moving from $q=1$ to $q=0.25$ lowers the minimum number of scenes from 45 to 11. The certified area can never exceed $q$, so a small cap costs area and a large cap costs tax.
+
+\section{The product certificate}\label{sec:product}
+
+\begin{proposition}[Product certificate]\label{prop:product}
+For i.i.d.\ scene losses in $[0,q]$, $q>\alpha$, and a fixed $c\in(0,1]$, let $\hat\lambda$ be the largest $\lambda$ with
+\begin{equation}
+\sum_{i=1}^{m}\log\Big(1+c\,\frac{\alpha-L_i(\lambda)}{q-\alpha}\Big)\ \ge\ \log\frac1\delta.
+\label{eq:prod}
+\end{equation}
+Then $\Prob(R(\hat\lambda)>\alpha)\le\delta$.
+\end{proposition}
+
+\begin{proof}
+Let $W_i=1+c\,[\alpha-L_i(\lambda^{+})]/(q-\alpha)$. Since $L_i\le q$ and $c\le1$, $W_i\ge1-c\ge0$, and $\E[W_i]=1+c\,[\alpha-R(\lambda^{+})]/(q-\alpha)<1$. Independence gives $\E[\prod_iW_i]\le1$, and Markov's inequality gives $\Prob(\prod_iW_i\ge1/\delta)\le\delta$. The statistic in \eqref{eq:prod} is nonincreasing in $\lambda$ because every $L_i$ is nondecreasing, so $\{\hat\lambda\ge\lambda^{+}\}=\{\prod_iW_i\ge1/\delta\}$. Risk is nondecreasing in $\lambda$, hence $R(\hat\lambda)>\alpha$ implies $\hat\lambda\ge\lambda^{+}$.
+\end{proof}
+
+Each scene acts as a bet with payoff $1+c(\alpha-L_i)/(q-\alpha)$ on a unit stake; if the threshold were unsafe, the bet would lose on average, so the stake reaches $1/\delta$ with probability at most $\delta$. The certificate is a fixed-bet member of the betting family of Waudby-Smith and Ramdas \cite{wsr}; it is closed-form and does not depend on the order of the scenes. If all observed losses equal $r$, it accepts when $r\le\alpha-(q-\alpha)(\delta^{-1/m}-1)/c$, which matches \eqref{eq:tax} up to the factor $1/c$.
+
+\begin{example}
+Take $m=16$, $q=0.13$, $\alpha=0.05$, $c=0.75$, $\delta=0.1$. A scene with loss $0.02$ contributes $\log(1+0.75\cdot0.03/0.08)=\log1.28125\approx0.248$. Sixteen such scenes give $3.96>\log10\approx2.30$, so the threshold is certified.
+\end{example}
+
+\section{The cap rule}
+
+We spend a quarter of the budget on the tax. With $u_m=\delta^{-1/m}-1$ for \eqref{eq:prod} and $u_m=1/m$ for CRC,
+\begin{equation}
+q^\star(m)=\min\bigl\{1,\ \alpha\,[1+0.25/u_m]\bigr\}.
+\label{eq:rule}
+\end{equation}
+The tax is about $(q-\alpha)u_m$; setting it to $0.25\alpha$ and solving for $q$ gives \eqref{eq:rule}. As $m$ grows, $u_m\to0$ and $q^\star(m)\to1$. For $m=32$, $\delta=0.1$, $\alpha=0.05$: $u_{32}\approx0.0746$ and $q^\star\approx0.218$. We fix $c=0.75$. Both constants were chosen on the calibration scenes; the held-out winter scenes tested them without further tuning.
+
+\section{The full procedure}
+
+\begin{enumerate}[label=\arabic*.,leftmargin=*]
+\item Input: frozen generator, score $s$, $m$ labelled scenes, $\alpha$, $\delta$, $\tau$. Set $q\leftarrow q^\star(m)$ from \eqref{eq:rule}.
+\item For each scene $i$ and each threshold $\lambda$ on a fixed grid, trust the pixels with $s\le\lambda$, at most a share $q$ of each patch, and compute $L_i(\lambda)$.
+\item Select $\hat\lambda$ as the largest $\lambda$ satisfying \eqref{eq:prod} (per-user guarantee) or \eqref{eq:crc} with $B=q$ (average guarantee).
+\item If no threshold qualifies, report the minimum $m$ from \eqref{eq:mmin} and refuse.
+\item Output: the capped mask at $\hat\lambda$, applied to every new scene.
+\end{enumerate}
+
+\section{Identifiability floor and ceiling}
+
+For a generator that sees only the SAR patch, the output is independent of the true optical value given the radar, so for every pixel
+\begin{equation}
+\Prob\bigl(|\hat y_b-y_b|>\tau\mid x\bigr)\ge1-Q_{\tau,b}(x),\qquad
+Q_{\tau,b}(x)=\sup_c\Prob\bigl(|y_b-c|\le\tau\mid x\bigr).
+\end{equation}
+The floor of a pixel is $f=\max_b[1-Q_{\tau,b}(x)]$. For example, if $p(y\mid x)$ puts half of its mass at 0.2 and half at 0.8 and $\tau=0.1$, any guess misses at least half of the time. Every trust rule pays at least the floor for each trusted pixel, so the largest certifiable area is
+\begin{equation}
+\mathrm{CTA}^\star(\alpha)=\max_S\frac{\E|S|}{P}\quad\text{subject to}\quad\E\sum_{p\in S}f_p\le\alpha P,
+\end{equation}
+attained by filling pixels in order of increasing floor (a Chow-type rejection bound \cite{chow}). We estimate $f$ with a per-pixel mixture density network. The estimate is a valid but loose lower bound: in the lowest floor decile it predicts a miss rate of 0.034, whereas the $\tau$-mode generator built from the same network misses 0.289, so the measured ceiling (0.441 at $\alpha=0.05$) is an overestimate.
+
+\section{Certificate on the error among trusted pixels}
+
+With $K(\lambda)$ the trusted share, the hypothesis $\E[L(\lambda)]\le\epsilon\,\E[K(\lambda)]$ is tested with the product test applied to $L-\epsilon K\in[-\epsilon,1-\epsilon]$ and a Bonferroni correction over nine fixed thresholds, since the ratio is not monotone. With $\epsilon=0.3$, $\tau=0.2$ and 64 scenes it certifies 63\% (Pix2Pix), 75\% (U-Net) and 100\% (cloud removal) of pixels, and 8\%, 11\% and 84\% from 32 scenes. At $\epsilon=0.2$ or $\tau=0.1$ it certifies at most 1\% for the SAR-only generators. The cap does not help because the range of $L-\epsilon K$ is two-sided.
+
+\section{Computation from histograms}
+
+For every patch and each of 200 score bins $j$, the GPU pass stores the cumulative counts $C_j$ of pixels and $B_j$ of wrong pixels, so that $K(j)=C_j/P$ and $\ell(j)=B_j/P$. For a cap $q$, let $v$ be the cumulative count of wrong pixels at the point where $qP$ pixels are trusted, linearly interpolated inside the bin that contains it. Then
+\begin{equation}
+\ell_q(j)=\frac{\min\{B_j,v\}}{P},\qquad K_q(j)=\frac{\min\{C_j,qP\}}{P}.
+\end{equation}
+This equals the expected loss under random tie-breaking inside that bin, so calibration on these values certifies the randomized mask. All certificate experiments run on a CPU in under a minute.
+
+\section{Experimental design}
+
+\paragraph{Data.} SEN12MS-CR \cite{sen12mscr} provides co-registered Sentinel-1 (VV, VH) and Sentinel-2 patches for 175 scenes. VV is clipped to $[-25,0]$~dB and VH to $[-32.5,-5]$~dB; the B4, B3, B2 values are scaled by $1/3000$ into $[0,1]$, so $\tau=0.1$ equals 0.03 in reflectance. The split is scene-disjoint: 62 scenes (7{,}766 patches) train the generators, 22 train the trust scores, 64 scenes (64 patches each) calibrate and test, and all 27 winter scenes are held out. SAR2Opt \cite{sar2opt} pairs TerraSAR-X (1~m) and optical tiles from ten cities; the city is the unit.
+
+\paragraph{Generators and scores.} A U-Net with an $L_1$ loss (54.4~M parameters); Pix2Pix, also with Monte Carlo dropout and with SAR-TopoGuard post-processing \cite{topoguard}; a rectified flow \cite{rectflow} (8.2~M parameters, 20 steps), as one sample and as the mean of five; the $\tau$-mode of the mixture density network; and a cloud-removal U-Net that also receives the cloudy image. The main trust score is a verifier network (13.6~M parameters) that predicts $\Prob(\text{wrong})$ from the SAR patch and the output.
+
+\paragraph{Protocol.} Main operating point $\alpha=0.05$, $\tau=0.1$, $\delta=0.1$; secondary point $\alpha=0.1$, $\tau=0.2$. Two evaluations: 300 random splits of the 64 scenes into 32 for calibration and 32 for testing, and a scene superpopulation in which $m$ scenes are drawn with replacement (500 draws), so that the risk of every threshold is known exactly. Hypotheses and pass criteria were written before each run.
+
+\section{Results}
+
+\begin{table}[htbp]
+\centering
+\caption{SEN12MS-CR at $\alpha=0.05$, $\tau=0.1$ (32 calibration and 32 test scenes, 300 splits). ``Over'' is the share of splits whose test risk exceeds $\alpha$; the last column is the error rate among trusted pixels for the capped certificate. $^\dagger$Also receives the cloudy optical image.}
+\label{tab:main}
+\small\setlength{\tabcolsep}{3.6pt}
+\begin{tabular}{@{}lccccccccc@{}}
+\toprule
+ & & \multicolumn{2}{c}{Patch CRC} & \multicolumn{2}{c}{Scene CRC} & Uncapped & \multicolumn{2}{c}{Capped cert.} & Error among\\
+\cmidrule(lr){3-4}\cmidrule(lr){5-6}\cmidrule(lr){7-7}\cmidrule(lr){8-9}
+Generator & PSNR & Over & Risk & Over & Area & Area & Over & Area & trusted\\
+\midrule
+$\tau$-mode (density net) & 19.98 & 0.51 & 0.055 & 0.20 & 0.097 & 0.000 & 0.04 & 0.086 & 0.29\\
+U-Net ($L_1$) & 19.78 & 0.45 & 0.050 & 0.02 & 0.119 & 0.000 & 0.03 & 0.098 & 0.31\\
+Pix2Pix & 19.67 & 0.49 & 0.053 & 0.07 & 0.127 & 0.000 & 0.05 & 0.102 & 0.27\\
+Pix2Pix, MC dropout & 19.67 & 0.48 & 0.053 & 0.06 & 0.128 & 0.000 & 0.05 & 0.102 & 0.27\\
+Pix2Pix + TopoGuard & 19.72 & 0.48 & 0.053 & 0.06 & 0.129 & 0.000 & 0.05 & 0.103 & 0.27\\
+Rect.\ flow, sample & 18.31 & 0.41 & 0.050 & 0.01 & 0.066 & 0.000 & 0.02 & 0.085 & 0.34\\
+Rect.\ flow, mean & 19.10 & 0.46 & 0.049 & 0.00 & 0.057 & 0.000 & 0.03 & 0.080 & 0.36\\
+Cloud removal$^\dagger$ & 22.92 & 0.49 & 0.052 & 0.07 & 0.171 & 0.000 & 0.05 & 0.141 & 0.20\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Patch-level CRC keeps the average risk near $\alpha$ but leaves 41\%--51\% of users over budget; scene-level CRC lowers this to 0\%--20\%. Proposition~\ref{prop:unit} held in all 216 tested configurations. Over 96 superpopulation configurations (eight generators, three operating points, $m\in\{8,16,32,64\}$), the capped product certificate has at most 2.6\% of users over budget (target 10\%), and Proposition~\ref{prop:tax} is never violated. For Pix2Pix it certifies 7.4\% of pixels from 8 scenes and 8.9\% from 16, where the uncapped exact bound certifies none below 64 scenes. On the 27 held-out winter scenes, with the same rule and constants, the worst share over budget in 72 configurations is 0.8\%, and the capped certificate always certifies more than the trivial area $\alpha$ (6.7\%--34.8\%).
+
+\begin{table}[htbp]
+\centering
+\caption{Few labelled scenes. Pix2Pix at $\alpha=0.05$, $\tau=0.1$ on winter scenes ($k$ labelled scenes, 300 splits), and SAR2Opt at $\alpha=0.1$ (five calibration and five test cities, 252 splits).}
+\label{tab:few}
+\small
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+ & Uncapped CRC & \multicolumn{2}{c}{Capped CRC} & \multicolumn{2}{c}{Capped certificate}\\
+\cmidrule(lr){2-2}\cmidrule(lr){3-4}\cmidrule(lr){5-6}
+Setting & Area & Risk & Area & Over & Area\\
+\midrule
+Winter, $k=4$ & 0.000 & 0.038 & 0.083 & 0.00 & 0.058\\
+Winter, $k=8$ & 0.000 & 0.037 & 0.094 & 0.01 & 0.066\\
+Winter, $k=12$ & 0.000 & 0.038 & 0.104 & 0.03 & 0.073\\
+Winter, $k=16$ & 0.000 & 0.039 & 0.112 & 0.03 & 0.078\\
+\midrule
+SAR2Opt, edge score & 0.000 & 0.074 & 0.110 & 0.00 & 0.088\\
+SAR2Opt, dropout spread & 0.000 & 0.049 & 0.071 & 0.00 & 0.060\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Ideas that did not work.} Using the verifier's predicted loss on unlabelled scenes as a control variate (correlation 0.29--0.67 with the true scene loss); trusting the best share $q$ of every patch (the best 1\% of pixels are wrong 41\% of the time, against 50\% for all pixels); a skew-corrected Student-$t$ bound (8\%--28\% of users over budget); choosing the cap from a grid with a Bonferroni correction (valid, but less area in 25 of 27 configurations); and bets $c=0.5$ (up to 0.07 less area) or $c=1$ (within 0.02 of $c=0.75$, but up to 3\% over budget).
+
+\section{What is certified, and what is not}\label{sec:limits}
+
+\begin{itemize}[leftmargin=*]
+\item The guarantee is on false trust as a share of all pixels. Among trusted pixels, 20\%--36\% remain wrong at $\tau=0.1$ (Table~\ref{tab:main}). Trusting any $\alpha$-share of pixels is valid without labels, so the certified area must always be compared with $\alpha$.
+\item Scenes must be exchangeable; a new region or season needs new labelled scenes, and with a cap 4--8 suffice in our winter experiment.
+\item A change of optical appearance with unchanged radar (concept shift) cannot be certified without labels.
+\item The cap constants were chosen on the calibration scenes; only the winter results are confirmatory.
+\end{itemize}
+
+\begin{thebibliography}{10}
+\bibitem{crc} A.~N. Angelopoulos, S.~Bates, A.~Fisch, L.~Lei, and T.~Schuster, ``Conformal risk control,'' in \emph{Proc.\ ICLR}, 2024.
+\bibitem{dunn} R.~Dunn, L.~Wasserman, and A.~Ramdas, ``Distribution-free prediction sets for two-layer hierarchical models,'' \emph{J.\ Amer.\ Statist.\ Assoc.}, vol.~118, no.~544, pp.~2491--2502, 2023.
+\bibitem{hall} P.~Hall, \emph{The Bootstrap and Edgeworth Expansion}. New York: Springer, 1992.
+\bibitem{bahadur} R.~R. Bahadur and L.~J. Savage, ``The nonexistence of certain statistical procedures in nonparametric problems,'' \emph{Ann.\ Math.\ Statist.}, vol.~27, no.~4, pp.~1115--1122, 1956.
+\bibitem{wsr} I.~Waudby-Smith and A.~Ramdas, ``Estimating means of bounded random variables by betting,'' \emph{J.\ R.\ Statist.\ Soc.\ B}, vol.~86, no.~1, pp.~1--27, 2024.
+\bibitem{chow} C.~K. Chow, ``On optimum recognition error and reject tradeoff,'' \emph{IEEE Trans.\ Inf.\ Theory}, vol.~16, no.~1, pp.~41--46, 1970.
+\bibitem{sen12mscr} P.~Ebel, A.~Meraner, M.~Schmitt, and X.~X. Zhu, ``Multisensor data fusion for cloud removal in global and all-season Sentinel-2 imagery,'' \emph{IEEE Trans.\ Geosci.\ Remote Sens.}, vol.~59, no.~7, pp.~5866--5878, 2021.
+\bibitem{sar2opt} Y.~Zhao, T.~Celik, N.~Liu, and H.-C. Li, ``A comparative analysis of GAN-based methods for SAR-to-optical image translation,'' \emph{IEEE Geosci.\ Remote Sens.\ Lett.}, vol.~19, art.~3512605, 2022.
+\bibitem{topoguard} ``SAR-TopoGuard: Training-free, speckle-aware topological verification for structure-preserving SAR-to-optical translation,'' \emph{IEEE Geosci.\ Remote Sens.\ Lett.}, to appear.
+\bibitem{rectflow} X.~Liu, C.~Gong, and Q.~Liu, ``Flow straight and fast: Learning to generate and transfer data with rectified flow,'' in \emph{Proc.\ ICLR}, 2023.
+\end{thebibliography}
+
+\end{document}
